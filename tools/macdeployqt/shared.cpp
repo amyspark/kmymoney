@@ -914,6 +914,14 @@ void changeInstallName(const QString &bundlePath, const FrameworkInfo &framework
         if (!canonicalInstallName.isEmpty() && canonicalInstallName != framework.installName) {
             changeInstallName(canonicalInstallName, deployedInstallName, binary);
         }
+        // Workaround for the case where the library ID name is a symlink,
+        // while the dependencies specified using canonical folder but
+        // symlink to the library (KF5KCMUtilsCore)
+        const QString canonicalInstallPath = fileInfo.canonicalPath();
+        if (!canonicalInstallPath.isEmpty() && canonicalInstallName != framework.installName) {
+            const QString frameworkInstallFilename = canonicalInstallPath + QLatin1Char('/') + fileInfo.fileName();
+            changeInstallName(frameworkInstallFilename, deployedInstallName, binary);
+        }
     }
 }
 
@@ -1587,7 +1595,7 @@ QSet<QString> codesignBundle(const QString &identity,
         //     LogWarning() << "=== Pending? " << pendingBinariesSet;
         // }
 
-        LogWarning() << "Dependencies found for:" << binary << dependencies;
+        // LogWarning() << "Dependencies found for:" << binary << dependencies;
 
         if (!dependencies.isEmpty()) {
             pendingBinaries.push(binary);
