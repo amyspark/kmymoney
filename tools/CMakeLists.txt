@@ -14,3 +14,7 @@ if (BUILD_TESTING AND ENABLE_REPORTSVIEW)
         Qt::Core
     )
 endif()
+
+if (APPLE)
+add_subdirectory( macdeployqt )
+endif()
