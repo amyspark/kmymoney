@@ -7,7 +7,6 @@ set (libconverter_a_SOURCES
   transactionmatchfinder.cpp
   existingtransactionmatchfinder.cpp
   scheduledtransactionmatchfinder.cpp
-  ../widgets/kmymoneymoneyvalidator.cpp
 )
 
 add_library(converter STATIC ${libconverter_a_SOURCES})
@@ -25,6 +24,7 @@ target_link_libraries(converter
     kmm_csvimportercore
     kmm_base_dialogs
     kmm_models
+    kmm_base_widgets
   PRIVATE
     KF${QT_MAJOR_VERSION}::I18n
     kmymoney_common

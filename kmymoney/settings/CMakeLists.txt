@@ -21,12 +21,14 @@ set(kmm_settings_HEADERS
 install(TARGETS kmm_settings
   ${KDE_INSTALL_TARGETS_DEFAULT_ARGS} )
 
+if (NOT APPLE)
 install(FILES kmymoney.kcfg
   DESTINATION ${KDE_INSTALL_KCFGDIR}
   )
 install(FILES kmymoney.upd
   DESTINATION ${KDE_INSTALL_KCONFUPDATEDIR}
   )
+endif()
 
 install(FILES ${kmm_settings_HEADERS}
   DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kmymoney COMPONENT Devel)

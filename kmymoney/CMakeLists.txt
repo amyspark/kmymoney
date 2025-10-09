@@ -206,6 +206,7 @@ install(TARGETS kmymoney ${INSTALL_TARGETS_DEFAULT_ARGS})
 install(FILES ${_HEADERS}
   DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kmymoney
   )
+if (NOT APPLE)
 install(FILES org.kde.kmymoney.desktop
   DESTINATION ${KDE_INSTALL_APPDIR}
   )
@@ -215,6 +216,7 @@ install(FILES org.kde.kmymoney.appdata.xml
 
 install(FILES x-kmymoney.xml
   DESTINATION ${KDE_INSTALL_MIMEDIR})
+endif()
 
 #UPDATE_XDG_MIMETYPES(${XDG_MIME_INSTALL_DIR})
 

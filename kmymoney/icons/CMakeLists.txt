@@ -4,10 +4,12 @@
 include(ECMInstallIcons)
 
 file(GLOB_RECURSE KMYMONEY_ICONS "kmymoney/*.png")
+if (NOT APPLE)
 ecm_install_icons(
   ICONS ${KMYMONEY_ICONS}
   DESTINATION ${KDE_INSTALL_ICONDIR}
 )
+endif()
 
 set (icons_SOURCES
   icons.cpp

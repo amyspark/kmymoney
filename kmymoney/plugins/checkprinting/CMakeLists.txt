@@ -52,5 +52,7 @@ file(GLOB TEMPLATE_FILES
     templates/*.html
 )
 
+if (NOT APPLE)
 install(FILES ${TEMPLATE_FILES} 
   DESTINATION ${KDE_INSTALL_DATADIR}/checkprinting)
+endif()
