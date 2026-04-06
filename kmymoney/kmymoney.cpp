@@ -123,6 +123,7 @@
 #include "ledgerviewsettings.h"
 #include "schedulesjournalmodel.h"
 #include "specialdatesmodel.h"
+#include "views/ledgerview.h"
 #include "widgets/amountedit.h"
 #include "widgets/kmymoneyaccountselector.h"
 #include "widgets/kmymoneydateedit.h"
@@ -737,6 +738,10 @@ public:
             // start the check for scheduled transactions that need to be
             // entered as soon as the event loop becomes active.
             QMetaObject::invokeMethod(q, "slotCheckSchedules", Qt::QueuedConnection);
+            break;
+
+        case eKMyMoney::FileAction::AboutToClose:
+            m_myMoneyView->executeAction(Action::FileAboutToClose, m_selections);
             break;
 
         case eKMyMoney::FileAction::Saved:
@@ -2252,8 +2257,13 @@ void KMyMoneyApp::slotDuplicateTransactions()
         // select the new transaction in the ledger
         auto selections = d->m_selections;
         const auto indeces = file->journalModel()->indexesByTransactionId(lastAddedTransactionId);
+        const auto account = MyMoneyFile::instance()->accountsModel()->itemById(accountId);
+        const auto isInvestmentAccount = account.accountType() == eMyMoney::Account::Type::Investment;
         for (const auto& idx : indeces) {
-            if (idx.data(eMyMoney::Model::JournalSplitAccountIdRole).toString() == accountId) {
+            const auto splitAccountId = idx.data(eMyMoney::Model::JournalSplitAccountIdRole).toString();
+            if (splitAccountId == accountId) {
+                selections.setSelection(SelectedObjects::JournalEntry, idx.data(eMyMoney::Model::IdRole).toString());
+            } else if (isInvestmentAccount && account.accountList().contains(splitAccountId)) {
                 selections.setSelection(SelectedObjects::JournalEntry, idx.data(eMyMoney::Model::IdRole).toString());
             }
         }
@@ -2714,6 +2724,26 @@ void KMyMoneyApp::slotMoveToToday()
 
     MyMoneyFileTransaction ft;
     const QDate today = QDate::currentDate();
+
+    // Save transaction and split IDs for restoration
+    struct SelectionInfo {
+        QString transactionId;
+        QString splitId;
+        QString accountId;
+    };
+    QVector<SelectionInfo> selectionInfos;
+
+    for (const auto& journalEntryId : d->m_selections.selection(SelectedObjects::JournalEntry)) {
+        const auto journalEntry = file->journalModel()->itemById(journalEntryId);
+        if (!journalEntry.id().isEmpty()) {
+            SelectionInfo info;
+            info.transactionId = journalEntry.transaction().id();
+            info.splitId = journalEntry.split().id();
+            info.accountId = journalEntry.split().accountId();
+            selectionInfos.append(info);
+        }
+    }
+
     for (const auto& journalEntryId : d->m_selections.selection(SelectedObjects::JournalEntry)) {
         const auto journalEntry = file->journalModel()->itemById(journalEntryId);
         if (!journalEntry.id().isEmpty()) {
@@ -2727,6 +2757,32 @@ void KMyMoneyApp::slotMoveToToday()
         }
     }
     ft.commit();
+
+    // Restore selection immediately by finding journal entries with matching transaction and split IDs
+    SelectedObjects newSelections;
+    for (const auto& info : selectionInfos) {
+        const auto indices = file->journalModel()->indexesByTransactionId(info.transactionId);
+        for (const auto& idx : indices) {
+            if (idx.data(eMyMoney::Model::JournalSplitIdRole).toString() == info.splitId
+                && idx.data(eMyMoney::Model::JournalSplitAccountIdRole).toString() == info.accountId) {
+                newSelections.addSelection(SelectedObjects::JournalEntry, idx.data(eMyMoney::Model::IdRole).toString());
+                break;
+            }
+        }
+    }
+
+    // Update internal selections
+    d->m_selections.setSelection(SelectedObjects::JournalEntry, newSelections.selection(SelectedObjects::JournalEntry));
+
+    // Use LedgerView's own method to set selection
+    const auto ledgerViews = d->m_myMoneyView->findChildren<LedgerView*>();
+    for (auto lv : ledgerViews) {
+        if (lv) {
+            lv->setSelectedJournalEntries(newSelections.selection(SelectedObjects::JournalEntry));
+        }
+    }
+
+    d->updateActions(d->m_selections);
 }
 
 void KMyMoneyApp::slotMatchTransaction()
@@ -4429,6 +4485,8 @@ bool KMyMoneyApp::slotFileClose()
 {
     if (!d->m_storageInfo.isOpened)
         return true;
+
+    d->fileAction(eKMyMoney::FileAction::AboutToClose);
 
     if (!d->askAboutSaving())
         return false;

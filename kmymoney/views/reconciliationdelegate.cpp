@@ -81,13 +81,13 @@ void ReconciliationDelegate::paint(QPainter* painter, const QStyleOptionViewItem
 
     const QRect textArea = QRect(opt.rect.x() + margin, opt.rect.y() + margin, opt.rect.width() - 2 * margin, opt.rect.height() - 2 * margin);
 
-    const auto reconciliationDate = index.data(eMyMoney::Model::TransactionPostDateRole).toDate();
+    const auto reconciliationDate = index.data(eMyMoney::Model::SplitReconcileDateRole).toDate();
     const auto reconciliationBalanceValue = index.data(eMyMoney::Model::ReconciliationAmountRole).value<MyMoneyMoney>();
     const auto accountBalance = MyMoneyFile::instance()->balance(index.data(eMyMoney::Model::SplitAccountIdRole).toString(), reconciliationDate);
 
-    KColorScheme::BackgroundRole role = (accountBalance == reconciliationBalanceValue) ? KColorScheme::PositiveBackground : KColorScheme::NegativeBackground;
+    const auto backgroundColorRole = static_cast<KColorScheme::BackgroundRole>(index.data(eMyMoney::Model::ReconciliationBackgroundRole).toInt());
+    KColorScheme::adjustBackground(opt.palette, backgroundColorRole, QPalette::Base, KColorScheme::View, KSharedConfigPtr());
 
-    KColorScheme::adjustBackground(opt.palette, role, QPalette::Base, KColorScheme::View, KSharedConfigPtr());
     // opt.rect.setHeight(lineHeight);
     opt.backgroundBrush = opt.palette.base();
 
@@ -104,7 +104,11 @@ void ReconciliationDelegate::paint(QPainter* painter, const QStyleOptionViewItem
             opt.rect.setWidth(view->viewport()->width());
         }
         painter->setPen(opt.palette.color(QPalette::Normal, QPalette::Text));
-        painter->drawText(opt.rect, Qt::AlignCenter, i18nc("Ledger marker showing a reconciliation entry", "Reconciliation"));
+        if (index.data(eMyMoney::Model::ReconciliationCurrentRole).toBool()) {
+            painter->drawText(opt.rect, Qt::AlignCenter, i18nc("Ledger marker showing current reconciliation entry", "Current reconciliation"));
+        } else {
+            painter->drawText(opt.rect, Qt::AlignCenter, i18nc("Ledger marker showing a reconciliation entry", "Reconciliation"));
+        }
         break;
     case JournalModel::Column::Date:
         painter->setPen(opt.palette.color(QPalette::Normal, QPalette::Text));

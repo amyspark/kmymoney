@@ -856,7 +856,17 @@ void KNewAccountDlg::okClicked()
     if (!d->ui->m_maxCreditEarlyEdit->text().isEmpty())
         d->ui->m_maxCreditEarlyEdit->setValue(d->ui->m_maxCreditEarlyEdit->value()*MyMoneyMoney::MINUS_ONE);
 
+    // if the user clears the last check number used but we still have a
+    // check number on file we update the field to the highest number used
+    // to maintain consistency
+    if (d->ui->m_lastCheckNumberUsed->text().isEmpty()) {
+        const auto highestCheckNumberUsed = file->highestCheckNumberUsed(d->m_account.id(), MyMoneyFile::ExcludeAccountValue);
+        if (highestCheckNumberUsed.compare(QLatin1String("0"))) {
+            d->ui->m_lastCheckNumberUsed->setText(highestCheckNumberUsed);
+        }
+    }
     d->storeKVP("lastNumberUsed", d->ui->m_lastCheckNumberUsed);
+
     // delete a previous version of the minimumbalance information
     d->storeKVP("minimumBalance", QString(), QString());
 
@@ -1066,10 +1076,10 @@ void KNewAccountDlg::slotCheckFinished()
         WidgetHintFrame::show(d->ui->accountNameEdit, i18nc("@info:tooltip Hint to provide name", "Please provide a name for the new category or account."));
 
     } else if (d->ui->accountNameEdit->text().contains(MyMoneyAccount::accountSeparator())) {
-        WidgetHintFrame::show(
-            d->ui->accountNameEdit,
-            i18nc("@info:tooltip %1 contains invalid character combination", "You cannot create an account or category that contains %1 in the name.")
-                .arg(MyMoneyAccount::accountSeparator()));
+        WidgetHintFrame::show(d->ui->accountNameEdit,
+                              i18nc("@info:tooltip %1 contains invalid character combination",
+                                    "You cannot create an account or category that contains %1 in the name.",
+                                    MyMoneyAccount::accountSeparator()));
     }
 
     if (d->ui->m_vatCategory->isChecked() && ((d->ui->m_vatRate->value() <= MyMoneyMoney()) || (d->ui->m_vatRate->value() >= MyMoneyMoney(100)))) {

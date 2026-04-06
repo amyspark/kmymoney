@@ -61,6 +61,7 @@
 #include "selectedobjects.h"
 #include "specialdatedelegate.h"
 #include "specialdatesmodel.h"
+#include "specialledgeritemfilter.h"
 #include "transactioneditorbase.h"
 
 struct GlobalEditData {
@@ -108,6 +109,11 @@ public:
         delegateProxy->addDelegate(eMyMoney::Delegates::Types::SecurityAccountNameDelegate, securityAccuntNameDelegate);
 
         q->setItemDelegate(delegateProxy);
+    }
+
+    ~Private()
+    {
+        delete columnSelector;
     }
 
     void setSingleLineDetailRole(eMyMoney::Model::Roles role)
@@ -688,6 +694,11 @@ void LedgerView::setModel(QAbstractItemModel* model)
     horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
 
     horizontalHeader()->setSectionsClickable(true);
+
+    SpecialLedgerItemFilter* sortModel = qobject_cast<SpecialLedgerItemFilter*>(model);
+    if (sortModel) {
+        connect(sortModel, &SpecialLedgerItemFilter::sortFinished, this, &LedgerView::ensureCurrentItemIsVisible);
+    }
 }
 
 void LedgerView::reset()
@@ -902,9 +913,9 @@ bool LedgerView::viewportEvent(QEvent* event)
 
                 } else if (idx.data(eMyMoney::Model::ScheduleIsOverdueRole).toBool()) {
                     const auto overdueSince = MyMoneyUtils::formatDate(idx.data(eMyMoney::Model::ScheduleIsOverdueSinceRole).toDate());
-                    tooltips[iconCount] =
-                        i18nc("@info:tooltip icon description, param is date", "This schedule is overdue since %1. Click on the icon to enter it.")
-                            .arg(overdueSince);
+                    tooltips[iconCount] = i18nc("@info:tooltip icon description, param is date",
+                                                "This schedule is overdue since %1. Click on the icon to enter it.",
+                                                overdueSince);
                     ++iconCount;
                 }
 
@@ -1458,6 +1469,12 @@ void LedgerView::selectionChanged(const QItemSelection& selected, const QItemSel
 {
     // call base class implementation
     QTableView::selectionChanged(selected, deselected);
+
+    // this method may get called with selected and deselected being empty
+    // when run on Qt6. in this case, we suppress forwarding the request.
+    if (selected.isEmpty() && deselected.isEmpty()) {
+        return;
+    }
 
     KMMSet<int> allSelectedRows;
     KMMSet<int> selectedRows;

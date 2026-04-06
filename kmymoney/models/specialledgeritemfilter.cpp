@@ -52,9 +52,10 @@ public:
         , showReconciliationEntries(LedgerViewSettings::DontShowReconciliationHeader)
         , filterBalanceMode(SpecialLedgerItemFilter::FilterBalanceNormal)
         , lastWasReconciliationEntry(false)
+        , reconciliationFilterMode(false)
     {
         updateDelayTimer.setSingleShot(true);
-        updateDelayTimer.setInterval(20);
+        updateDelayTimer.setInterval(100);
     }
 
     bool isSortingByDateFirst() const
@@ -263,6 +264,13 @@ public:
             if (!isSortingByDate()) {
                 return false;
             }
+            // during reconciliation we only show the very last
+            // reconciliation marker in the account and the one
+            // for the current reconciliation
+            if (reconciliationFilterMode) {
+                return idx.data(eMyMoney::Model::LastReconciliationRole).toBool() || idx.data(eMyMoney::Model::ReconciliationCurrentRole).toBool();
+            }
+
             // Depending on the setting we only show a subset
             if (showReconciliationEntries != LedgerViewSettings::ShowAllReconciliationHeader) {
                 const auto filterHint = idx.data(eMyMoney::Model::ReconciliationFilterHintRole).value<eMyMoney::Model::ReconciliationFilterHint>();
@@ -285,38 +293,17 @@ public:
             }
 
             // in case the source model is not sorting, we
-            // can assume that the item is visible. Once it
+            // can assume that the last item is visible. Once it
             // is sorted, it is early enough to perform the
             // other checks for reconciliation entries.
             // Not suppressing this this on an unsorted model
-            // may cause a hug performance penalty (looks like
+            // may cause a huge performance penalty (looks like
             // the application hung up in certain scenarios)
             if (!sourceModel->inSorting()) {
-                return true;
+                const auto filterMode = idx.data(eMyMoney::Model::ReconciliationFilterHintRole).value<eMyMoney::Model::ReconciliationFilterHint>();
+                return (filterMode == eMyMoney::Model::DontFilterLast) || (filterMode == eMyMoney::Model::DontFilter);
             }
 
-            // in case we get here recursively, we simply assume
-            // that this entry will be shown, so the actual one
-            // that is checked will be hidden
-            if (lastWasReconciliationEntry) {
-                return true;
-            }
-
-            // make sure we only show reconciliation entries that are not followed by
-            // another reconciliation entry. Only inspect visible items
-            lastWasReconciliationEntry = true;
-            int row = idx.row() + 1;
-            while (row < rowCount) {
-                const auto testIdx = q->sourceModel()->index(row, 0, source_parent);
-                if (filterAcceptsRow(testIdx, source_parent, rowCount)) {
-                    lastWasReconciliationEntry = false;
-                    if (isReconciliationModel(testIdx)) {
-                        return false;
-                    }
-                    return true;
-                }
-                ++row;
-            }
             return true;
         }
 
@@ -338,6 +325,7 @@ public:
     LedgerViewSettings::ReconciliationHeader showReconciliationEntries;
     SpecialLedgerItemFilter::FilterBalanceMode filterBalanceMode;
     bool lastWasReconciliationEntry;
+    bool reconciliationFilterMode;
 };
 
 SpecialLedgerItemFilter::SpecialLedgerItemFilter(QObject* parent)
@@ -349,6 +337,7 @@ SpecialLedgerItemFilter::SpecialLedgerItemFilter(QObject* parent)
         // sort afresh in case some rows need to be resorted
         // doSort() inherits a call to invalidateFilter().
         doSort();
+        Q_EMIT sortFinished();
     });
 
     connect(MyMoneyFile::instance()->journalModel(), &JournalModel::balanceChanged, this, [&](const QString& accountId) {
@@ -398,6 +387,7 @@ void SpecialLedgerItemFilter::setSourceModel(LedgerSortProxyModel* model)
         connect(model, &QAbstractItemModel::modelReset, this, &SpecialLedgerItemFilter::forceReload);
     }
     d->sourceModel = model;
+    d->sourceModel->setLedgerSortOrder(d->ledgerSortOrder);
 }
 
 void SpecialLedgerItemFilter::setLedgerSortOrder(LedgerSortOrder sortOrder)
@@ -541,4 +531,12 @@ QVariant SpecialLedgerItemFilter::data(const QModelIndex& index, int role) const
         }
     }
     return LedgerSortProxyModel::data(index, role);
+}
+
+void SpecialLedgerItemFilter::setReconciliationFilter(bool reconciliationFilter)
+{
+    Q_D(SpecialLedgerItemFilter);
+    setFilterBalanceMode(SpecialLedgerItemFilter::FilterBalanceMode::FilterBalanceReconciliation);
+    d->reconciliationFilterMode = reconciliationFilter;
+    d->sourceModel->setReconcilitionSorting(reconciliationFilter);
 }

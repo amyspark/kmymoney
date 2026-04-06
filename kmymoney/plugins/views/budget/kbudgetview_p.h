@@ -84,6 +84,7 @@ public:
         ui->setupUi(q);
 
         ui->m_budgetList->setContextMenuPolicy(Qt::CustomContextMenu);
+        ui->m_budgetList->setSelectionBehavior(QAbstractItemView::SelectRows);
 
         // assign actions to tool buttons
         ui->m_newButton->setDefaultAction(m_actions[eMenu::BudgetAction::NewBudget]);
@@ -151,6 +152,7 @@ public:
                 q->slotUpdateBudget();
                 // m_inSelection = false;
             }
+            ui->m_updateButton->setEnabled(false);
         }
     }
 

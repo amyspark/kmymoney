@@ -12,6 +12,10 @@
 // ----------------------------------------------------------------------------
 // QT Includes
 
+#include <QAbstractItemDelegate>
+#include <QLineEdit>
+#include <QSpinBox>
+
 // ----------------------------------------------------------------------------
 // KDE Includes
 
@@ -75,6 +79,44 @@ void KBudgetView::showEvent(QShowEvent * event)
         });
 
         slotSelectBudget();
+
+        connect(d->ui->m_budgetList->itemDelegate(), &QAbstractItemDelegate::closeEditor, this, [&](QWidget* editor) {
+            Q_D(KBudgetView);
+            const auto idx = d->ui->m_budgetList->currentIndex();
+            const auto file = MyMoneyFile::instance();
+            const QLineEdit* lineEdit = qobject_cast<QLineEdit*>(editor);
+            const QSpinBox* spinBox = qobject_cast<QSpinBox*>(editor);
+            auto budget = file->budgetsModel()->itemByIndex(idx);
+            bool needSave = false;
+
+            switch (idx.column()) {
+            case BudgetsModel::Columns::Name:
+                if (lineEdit) {
+                    budget.setName(lineEdit->text());
+                    needSave = true;
+                }
+                break;
+
+            case BudgetsModel::Columns::Year:
+                if (spinBox) {
+                    const QDate date(spinBox->value(), KMyMoneySettings::fiscalYearBegin() + 1, KMyMoneySettings::fiscalYearBeginDay());
+                    if (date.isValid()) {
+                        budget.setBudgetStart(date);
+                        needSave = true;
+                    }
+                }
+                break;
+            }
+            if (needSave) {
+                MyMoneyFileTransaction ft;
+                try {
+                    file->modifyBudget(budget);
+                    ft.commit();
+                } catch (MyMoneyException& e) {
+                    qDebug() << e.what();
+                }
+            }
+        });
     }
 
     // don't forget base class implementation
@@ -556,5 +598,26 @@ void KBudgetView::slotOpenAccountContextMenu(eMenu::Menu type, const QPoint& p)
         d->m_actions[eMenu::BudgetAction::TreatAsIncome]->setToolTip(tip);
         d->m_actions[eMenu::BudgetAction::TreatAsExpense]->setToolTip(tip);
         d->m_accountContextMenu->popup(p);
+    }
+}
+
+void KBudgetView::executeAction(eMenu::Action action, const SelectedObjects& selections)
+{
+    Q_UNUSED(selections);
+    Q_D(KBudgetView);
+    // check if we are even initialized
+    if (d->m_budgetProxyModel) {
+        switch (action) {
+        case eMenu::Action::FileAboutToClose:
+            d->askSave();
+            break;
+        case eMenu::Action::FileClose:
+            d->ui->m_budgetList->selectionModel()->clearSelection();
+            d->m_budget = MyMoneyBudget();
+            d->loadBudgetAccountsView();
+            break;
+        default:
+            break;
+        }
     }
 }

@@ -10,6 +10,7 @@
 
 #include <QDebug>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QPointer>
 
 // ----------------------------------------------------------------------------
@@ -23,8 +24,10 @@
 // ----------------------------------------------------------------------------
 // Project Includes
 
+#include "accountsmodel.h"
 #include "icons.h"
 #include "kmmset.h"
+#include "mymoneyfile.h"
 #include "mymoneysecurity.h"
 #include "splitadjustdialog.h"
 #include "splitmodel.h"
@@ -75,8 +78,8 @@ public:
     MyMoneyMoney transactionTotal;
     MyMoneyMoney splitsTotal;
     MyMoneyMoney inversionFactor;
+    MyMoneySecurity commodity;
     QString transactionPayeeId;
-    QString commoditySymbol;
     bool readOnly;
 };
 
@@ -154,7 +157,7 @@ SplitDialog::SplitDialog(const MyMoneySecurity& commodity,
     d->fraction = fraction;
     d->transactionTotal = amount;
     d->inversionFactor = inversionFactor;
-    d->commoditySymbol = commodity.tradingSymbol();
+    d->commodity = commodity;
     d->ui->setupUi(this);
 
     d->ui->splitView->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -293,7 +296,7 @@ void SplitDialog::adjustSummary()
     }
 
     // Only show the currency symbol when multiple currencies are involved
-    QString currencySymbol = d->commoditySymbol;
+    QString currencySymbol = d->commodity.tradingSymbol();
     if (!d->splitModel->hasMultiCurrencySplits()) {
         currencySymbol.clear();
     }
@@ -416,8 +419,30 @@ void SplitDialog::updateButtonState()
 
         if (d->ui->splitView->selectionModel()->selectedRows().count() == 1
             && !d->ui->splitView->selectionModel()->selectedIndexes().at(0).data(eMyMoney::Model::IdRole).toString().isEmpty()) {
+            // The apply difference function is only available if
+            // a) there is a difference in values and
+            // b) the current selected split is valid and
+            // c1) the shares of the selected split is not zero or
+            // c2) the account of the selected split has the same currency as the transaction
+            //     in which case we can assume a price of 1
             if (!d->transactionTotal.isAutoCalc()) {
-                d->ui->adjustUnassigned->setDisabled((d->transactionTotal.abs() - d->splitsTotal.abs()).isZero());
+                bool disabled = (d->transactionTotal.abs() - d->splitsTotal.abs()).isZero();
+                if (!disabled) {
+                    QModelIndex index = d->ui->splitView->currentIndex();
+                    if (index.isValid()) {
+                        const auto shares = index.data(eMyMoney::Model::SplitSharesRole).value<MyMoneyMoney>();
+                        if (shares.isZero()) {
+                            const auto categoryId = index.data(eMyMoney::Model::SplitAccountIdRole).toString();
+                            const auto accountIdx = MyMoneyFile::instance()->accountsModel()->indexById(categoryId);
+                            if (accountIdx.data(eMyMoney::Model::AccountCurrencyIdRole).toString() != d->commodity.id()) {
+                                disabled = true;
+                            }
+                        }
+                    } else {
+                        disabled = true;
+                    }
+                }
+                d->ui->adjustUnassigned->setDisabled(disabled);
             }
         }
 
@@ -469,7 +494,10 @@ void SplitDialog::adjustUnassigned()
         // extract current values ...
         auto shares = index.data(eMyMoney::Model::SplitSharesRole).value<MyMoneyMoney>();
         auto value = index.data(eMyMoney::Model::SplitValueRole).value<MyMoneyMoney>();
-        const auto price = value / shares;
+        auto price = MyMoneyMoney::ONE;
+        if (!shares.isZero()) {
+            price = value / shares;
+        }
         const auto diff = d->transactionTotal - d->splitsTotal;
         // ... and adjust shares and value ...
         value += diff;
@@ -522,4 +550,15 @@ void SplitDialog::setReadOnly(bool readOnly)
     d->ui->newSplitButton->setDisabled(readOnly);
     d->ui->splitView->setReadOnlyMode(readOnly);
     updateButtonState();
+}
+
+void SplitDialog::keyPressEvent(QKeyEvent* event)
+{
+    const auto keyIsReturn = ((event->modifiers() & Qt::KeypadModifier) && (event->key() == Qt::Key_Enter)) || (event->key() == Qt::Key_Return);
+    if ((event->modifiers() == Qt::ShiftModifier) && keyIsReturn) {
+        // Shift+Enter causes the dialog to be accepted
+        accept();
+        return;
+    }
+    QDialog::keyPressEvent(event);
 }

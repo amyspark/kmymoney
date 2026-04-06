@@ -206,15 +206,6 @@ public:
         q->setMinimumHeight(height);
     }
 
-    void cut()
-    {
-        Q_Q(AmountEdit);
-        // only cut if parts of the text are selected
-        if (q->hasSelectedText() && (q->text() != q->selectedText())) {
-            cut();
-        }
-    }
-
     bool hasMultipleCurrencies() const
     {
         return m_sharesCommodity.id().compare(m_valueCommodity.id());
@@ -546,12 +537,24 @@ void AmountEdit::focusOutEvent(QFocusEvent* event)
 
 void AmountEdit::keyPressEvent(QKeyEvent* event)
 {
+    auto suppressVerticalMovement = [&](QKeyEvent* ev) {
+        switch (ev->key()) {
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_PageUp:
+        case Qt::Key_PageDown:
+            ev->accept();
+            break;
+        default:
+            break;
+        }
+    };
+
     Q_D(AmountEdit);
     if (!isReadOnly()) {
         switch (event->key()) {
         case Qt::Key_Plus:
         case Qt::Key_Minus:
-            d->cut();
             if (text().length() == 0) {
                 break;
             }
@@ -568,7 +571,6 @@ void AmountEdit::keyPressEvent(QKeyEvent* event)
         case Qt::Key_Slash:
         case Qt::Key_Asterisk:
         case Qt::Key_Percent:
-            d->cut();
             d->calculatorOpen(event);
             return;
 
@@ -592,42 +594,59 @@ void AmountEdit::keyPressEvent(QKeyEvent* event)
             int key = event->key();
             if (event->modifiers() & Qt::KeypadModifier) {
                 if ((key == Qt::Key_Period) || (key == Qt::Key_Comma)) {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-                key = QLocale().decimalPoint().unicode();
-#else
-                key = QLocale().decimalPoint().at(0).unicode();
-#endif
-                keyText = QLocale().decimalPoint();
+                    key = MyMoneyMoney::decimalSeparator().unicode();
+                    keyText = MyMoneyMoney::decimalSeparator();
                 }
-            }
-        // create a (possibly adjusted) copy of the event
-        QKeyEvent newEvent(event->type(),
-                           key,
-                           event->modifiers(),
-                           event->nativeScanCode(),
-                           event->nativeVirtualKey(),
-                           event->nativeModifiers(),
-                           keyText,
-                           event->isAutoRepeat(),
-                           event->count());
+                // create a (possibly adjusted) copy of the event
+                QKeyEvent newEvent(event->type(),
+                                   key,
+                                   event->modifiers(),
+                                   event->nativeScanCode(),
+                                   event->nativeVirtualKey(),
+                                   event->nativeModifiers(),
+                                   keyText,
+                                   event->isAutoRepeat(),
+                                   event->count());
 
-        // in case all text is selected and the user presses the decimal point
-        // we fill the widget with the leading "0". The outcome of this will be
-        // that the widget then contains "0.".
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        if ((newEvent.key() == QLocale().decimalPoint().unicode()) && (selectedText() == text())) {
-#else
-        if ((newEvent.key() == QLocale().decimalPoint().at(0).unicode()) && (selectedText() == text())) {
-#endif
-            QLineEdit::setText(QLatin1String("0"));
-        }
-        QLineEdit::keyPressEvent(&newEvent);
-        return;
+                // in case all text is selected and the user presses the decimal point
+                // we fill the widget with the leading "0". The outcome of this will be
+                // that the widget then contains "0.".
+                if ((newEvent.key() == MyMoneyMoney::decimalSeparator().unicode()) && (selectedText() == text())) {
+                    QLineEdit::setText(QLatin1String("0"));
+                }
+                QLineEdit::keyPressEvent(&newEvent);
+
+                // in case the key was not handled by the base class
+                // we have to make sure that we do not report any
+                // vertical movement to upper layers
+                suppressVerticalMovement(&newEvent);
+
+                // propagate acceptance state to the event that
+                // is visible to the caller
+                event->setAccepted(newEvent.isAccepted());
+                return;
+            }
+            break;
         }
     }
+
     // in case we have not processed anything, we
     // need to call the base class implementation
+    // we keep the current content so we can check
+    // if the key pressure did change and was consumed
+    const auto oldContent = text();
     QLineEdit::keyPressEvent(event);
+
+    // in case the key was not handled by the base class
+    // we have to make sure that we do not report any
+    // vertical movement to upper layers
+    suppressVerticalMovement(event);
+
+    // if no change, we assume no consumption and
+    // propagate the event to parent widgets. This
+    // allows shortcuts to be handled in upstream
+    // widgets.
+    event->setAccepted(event->isAccepted() || (text() != oldContent));
 }
 
 void AmountEdit::setPrecision(const int prec, bool forceUpdate)

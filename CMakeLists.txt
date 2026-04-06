@@ -31,7 +31,7 @@ endif()
 
 set(RELEASE_SERVICE_VERSION_MAJOR "5")
 set(RELEASE_SERVICE_VERSION_MINOR "2")
-set(RELEASE_SERVICE_VERSION_MICRO "1")
+set(RELEASE_SERVICE_VERSION_MICRO "2")
 set(RELEASE_SERVICE_VERSION "${RELEASE_SERVICE_VERSION_MAJOR}.${RELEASE_SERVICE_VERSION_MINOR}.${RELEASE_SERVICE_VERSION_MICRO}")
 
 # Use ccache if available
@@ -51,8 +51,8 @@ set(KMM_KCHART_MIN_VERSION 2.6.0)
 # version. Details can be found in the libofx source code
 set(KMM_LIBOFX_MIN_VERSION 0.10.0)
 set(KMM_LIBOFX_MIN_SOVERSION 7.0.0)
-set(KMM_AQBANKING_MIN_VERSION 6.6.1)
-set(KMM_GWENHYWFAR_MIN_VERSION 5.12.1)
+set(KMM_AQBANKING_MIN_VERSION 6.8.4)
+set(KMM_GWENHYWFAR_MIN_VERSION 5.14.1)
 
 # Determine the GIT reference (if we're based on GIT)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
@@ -60,7 +60,17 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
           WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
           OUTPUT_VARIABLE VERSION_SUFFIX
           OUTPUT_STRIP_TRAILING_WHITESPACE)
-  set(VERSION_SUFFIX "-${VERSION_SUFFIX}")
+  execute_process(COMMAND git tag --contains ${VERSION_SUFFIX}
+          WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+          OUTPUT_VARIABLE TAG
+          OUTPUT_STRIP_TRAILING_WHITESPACE)
+  # for commits that don't have a tag add the commit hash
+  # don't add the hash if the commit is tagged
+  if("" STREQUAL "${TAG}")
+    set(VERSION_SUFFIX "-${VERSION_SUFFIX}")
+  else()
+    set(VERSION_SUFFIX "")
+  endif()
   # Add variables which are similar to the build in names of cmake
   set(PROJECT_VERSION_SUFFIX "${VERSION_SUFFIX}")
   set(${PROJECT_NAME}_VERSION_SUFFIX "${VERSION_SUFFIX}")
@@ -286,6 +296,12 @@ add_definitions(-DQT_USE_QSTRINGBUILDER -DQT_NO_CAST_TO_ASCII -DQT_NO_URL_CAST_F
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# freeBSD error: passing no argument for the '...' parameter of a
+# variadic macro is a C++20 extension [-Werror,-Wc++20-extensions]
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-c++20-extensions)
+endif()
 
 # use DBus only on Linux
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")

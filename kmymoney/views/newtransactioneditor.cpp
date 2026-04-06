@@ -167,6 +167,7 @@ public:
     KMyMoneyAccountComboSplitHelper* m_splitHelper;
     TabOrder* m_externalTabOrder;
     TabOrder m_tabOrder;
+    QString m_initialCheckNumber;
 };
 
 void NewTransactionEditor::Private::updateWidgetAccess()
@@ -458,19 +459,10 @@ bool NewTransactionEditor::Private::numberChanged(const QString& newNumber)
 {
     bool rc = true; // number did change
     WidgetHintFrame::hide(ui->numberEdit);
-    if (!newNumber.isEmpty()) {
-        auto model = MyMoneyFile::instance()->journalModel();
-        const QModelIndexList list = model->match(model->index(0, 0), eMyMoney::Model::SplitNumberRole,
-                                     QVariant(newNumber),
-                                     -1,                         // all splits
-                                     Qt::MatchFlags(Qt::MatchExactly | Qt::MatchCaseSensitive | Qt::MatchRecursive));
-        for (const auto& idx : list) {
-            if (idx.data(eMyMoney::Model::SplitAccountIdRole).toString() == m_account.id()
-                && idx.data(eMyMoney::Model::JournalTransactionIdRole).toString().compare(m_transaction.id())) {
-                WidgetHintFrame::show(ui->numberEdit, i18n("The check number <b>%1</b> has already been used in this account.", newNumber));
-                rc = false;
-                break;
-            }
+    if (!newNumber.isEmpty() && (newNumber != m_initialCheckNumber)) {
+        if (MyMoneyFile::instance()->isCheckNumberInUse(m_account.id(), newNumber)) {
+            WidgetHintFrame::show(ui->numberEdit, i18n("The check number <b>%1</b> has already been used in this account.", newNumber));
+            rc = false;
         }
     }
     return rc;
@@ -529,15 +521,23 @@ void NewTransactionEditor::Private::payeeChanged(int payeeIndex)
 
     } else {
         // copy payee information to second split if there are only two splits
+        // and it does not differ from the current one
         if (splitModel.rowCount() == 1) {
             const auto idx = splitModel.index(0, 0);
-            splitModel.setData(idx, payeeId, eMyMoney::Model::SplitPayeeIdRole);
+            const auto id = idx.data(eMyMoney::Model::SplitPayeeIdRole).toString();
+            if (id.isEmpty() || (id == payeeId)) {
+                splitModel.setData(idx, payeeId, eMyMoney::Model::SplitPayeeIdRole);
+            }
         }
     }
 }
 
 void NewTransactionEditor::Private::autoFillTransaction(const QString& payeeId)
 {
+    // Capture user's amount immediately at function entry (before any processing)
+    const auto userAmountFilled = ui->creditDebitEdit->haveValue();
+    const auto userAmount = ui->creditDebitEdit->value();
+    const auto userShares = ui->creditDebitEdit->shares();
     struct uniqTransaction {
         QString journalEntryId;
         MyMoneyMoney amount;
@@ -652,8 +652,6 @@ void NewTransactionEditor::Private::autoFillTransaction(const QString& payeeId)
             // keep data we don't want to change by loading
             const auto postDate = ui->dateEdit->date();
             const auto number = ui->numberEdit->text();
-            const auto amountFilled = ui->creditDebitEdit->haveValue();
-            const auto amount = ui->creditDebitEdit->value();
             const auto memo = ui->memoEdit->toPlainText();
 
             // now load the existing transaction into the editor
@@ -677,22 +675,13 @@ void NewTransactionEditor::Private::autoFillTransaction(const QString& payeeId)
                     splitModel.setData(idx, QString(), eMyMoney::Model::SplitActionRole);
                 }
                 // copy payee information to second split if there are only two splits
-                // overwrite amount in split if value was already available
                 if (splitModel.rowCount() == 1) {
                     splitModel.setData(idx, payeeId, eMyMoney::Model::SplitPayeeIdRole);
                     if (!memo.isEmpty()) {
                         splitModel.setData(idx, memo, eMyMoney::Model::SplitMemoRole);
                     }
-                    if (amountFilled) {
-                        const auto value = idx.data(eMyMoney::Model::SplitValueRole).value<MyMoneyMoney>();
-                        const auto shares = idx.data(eMyMoney::Model::SplitSharesRole).value<MyMoneyMoney>();
-                        auto price = MyMoneyMoney::ONE;
-                        if (!shares.isZero()) {
-                            price = value / shares;
-                        }
-                        splitModel.setData(idx, QVariant::fromValue<MyMoneyMoney>(-amount), eMyMoney::Model::SplitValueRole);
-                        splitModel.setData(idx, QVariant::fromValue<MyMoneyMoney>((-amount / price).convert()), eMyMoney::Model::SplitSharesRole);
-                    }
+                    // Don't update split amounts - let them come from the loaded transaction
+                    // The UI amount preservation happens separately
                 }
             }
             // restore data we don't want to change by loading
@@ -700,13 +689,14 @@ void NewTransactionEditor::Private::autoFillTransaction(const QString& payeeId)
 
             if (ui->numberEdit->isVisible() && !number.isEmpty()) {
                 ui->numberEdit->setText(number);
-            } else if (!m_split.number().isEmpty()) {
-                ui->numberEdit->setText(KMyMoneyUtils::nextFreeCheckNumber(m_account));
+            } else if (!m_split.number().isEmpty() && (m_account.accountType() == eMyMoney::Account::Type::Checkings)) {
+                ui->numberEdit->setText(MyMoneyFile::instance()->nextCheckNumber(m_account.id()));
             }
 
-            // if the user already entered an amount we use it to proceed
-            if (amountFilled) {
-                ui->creditDebitEdit->setValue(amount);
+            // If user had entered an amount, restore it (loadTransaction would have overwritten it)
+            if (userAmountFilled) {
+                ui->creditDebitEdit->setValue(userAmount);
+                ui->creditDebitEdit->setShares(userShares);
             }
 
             // if the user already entered a memo we use it
@@ -772,7 +762,7 @@ MyMoneyMoney NewTransactionEditor::Private::splitsSum() const
 {
     const auto rows = splitModel.rowCount();
     MyMoneyMoney value;
-    for(int row = 0; row < rows; ++row) {
+    for (int row = 0; row < rows; ++row) {
         const auto idx = splitModel.index(row, 0);
         value += idx.data(eMyMoney::Model::SplitValueRole).value<MyMoneyMoney>();
     }
@@ -1000,12 +990,22 @@ void NewTransactionEditor::Private::updateVAT(TaxValueChange amountChanged)
     MyMoneyFile::instance()->updateVAT(t);
 
     // keep the split model in sync with the new data
+    MyMoneySplit accountSplit;
     splitModel.unload();
     for (const auto& split : t.splits()) {
         if ((split.accountId() == taxId) || split.accountId() == categoryId) {
             splitModel.appendSplit(split);
+        } else {
+            accountSplit = split;
         }
     }
+
+    // In case the category is based on the net amount entry, we need to update
+    // the widgets to show the gross amount for the account.  In case
+    // the category is based on gross amount entry setting the same value
+    // does not hurt.
+    ui->creditDebitEdit->setValue(accountSplit.value(), true);
+    ui->creditDebitEdit->setShares(accountSplit.shares());
 }
 
 void NewTransactionEditor::Private::defaultCategoryAssignment()
@@ -1038,6 +1038,7 @@ void NewTransactionEditor::Private::loadTransaction(QModelIndex idx)
     // keep a copy of the transaction and split
     m_transaction = MyMoneyFile::instance()->journalModel()->itemByIndex(idx).transaction();
     m_split = MyMoneyFile::instance()->journalModel()->itemByIndex(idx).split();
+    m_initialCheckNumber = m_split.number();
     const auto list = idx.model()->match(idx.model()->index(0, 0),
                                          eMyMoney::Model::JournalTransactionIdRole,
                                          idx.data(eMyMoney::Model::JournalTransactionIdRole),
@@ -1112,8 +1113,11 @@ void NewTransactionEditor::Private::loadTransaction(QModelIndex idx)
 
     // then setup the amount widget and update the state
     // of all other widgets
-    ui->creditDebitEdit->setValue(amountValue);
-    ui->creditDebitEdit->setShares(amountShares);
+    // Only set amount if user hasn't already entered one
+    if (!ui->creditDebitEdit->haveValue()) {
+        ui->creditDebitEdit->setValue(amountValue);
+        ui->creditDebitEdit->setShares(amountShares);
+    }
 
     updateWidgetState();
     updateWidgetAccess();
@@ -1329,6 +1333,7 @@ NewTransactionEditor::NewTransactionEditor(QWidget* parent, const QString& accou
 
     // handle some events in certain conditions different from default
     d->ui->payeeEdit->installEventFilter(this);
+    d->ui->payeeEdit->completer()->popup()->installEventFilter(this);
     d->ui->costCenterCombo->installEventFilter(this);
     d->ui->tagContainer->tagCombo()->installEventFilter(this);
     d->ui->categoryCombo->installEventFilter(this);
@@ -1470,6 +1475,7 @@ void NewTransactionEditor::loadSchedule(const MyMoneySchedule& schedule, Schedul
         d->checkForValidAmount();
 
         d->m_splitHelper->updateWidget();
+        d->m_initialCheckNumber.clear();
     }
 }
 
@@ -1504,11 +1510,17 @@ void NewTransactionEditor::loadTransaction(const QModelIndex& index)
 
         d->m_split = MyMoneySplit();
         d->m_split.setAccountId(d->m_account.id());
+        d->m_initialCheckNumber.clear();
         const auto lastUsedPostDate = KMyMoneySettings::lastUsedPostDate();
         if (lastUsedPostDate.isValid()) {
             d->ui->dateEdit->setDate(lastUsedPostDate.date());
         } else {
             d->ui->dateEdit->setDate(QDate::currentDate());
+        }
+
+        // in case user selected to fill number field with next number ...
+        if ((d->m_account.accountType() == eMyMoney::Account::Type::Checkings) && KMyMoneySettings::autoIncCheckNumber()) {
+            d->ui->numberEdit->setText(MyMoneyFile::instance()->nextCheckNumber(d->m_account.id()));
         }
 
         d->ui->creditDebitEdit->setSharesCommodity(commodity);
@@ -1520,7 +1532,6 @@ void NewTransactionEditor::loadTransaction(const QModelIndex& index)
 
     setInitialFocus();
 }
-
 
 void NewTransactionEditor::editSplits()
 {
@@ -1660,21 +1671,30 @@ MyMoneyTransaction NewTransactionEditor::transaction() const
 
 QStringList NewTransactionEditor::saveTransaction(const QStringList& selectedJournalEntries)
 {
+    const auto file = MyMoneyFile::instance();
     auto t = transaction();
 
     auto selection(selectedJournalEntries);
-    connect(MyMoneyFile::instance()->journalModel(), &JournalModel::idChanged, this, [&](const QString& currentId, const QString& previousId) {
+    connect(file->journalModel(), &JournalModel::idChanged, this, [&](const QString& currentId, const QString& previousId) {
         selection.replaceInStrings(previousId, currentId);
     });
 
     MyMoneyFileTransaction ft;
     try {
         if (t.id().isEmpty()) {
-            MyMoneyFile::instance()->addTransaction(t);
+            file->addTransaction(t);
             selection = journalEntrySelection(t.id(), d->m_account.id());
         } else {
             t.setImported(false);
-            MyMoneyFile::instance()->modifyTransaction(t);
+            file->modifyTransaction(t);
+        }
+        // in case we have a check number
+        const auto highestCheckNumberUsed = file->highestCheckNumberUsed(d->m_account.id());
+        if (highestCheckNumberUsed.compare(QLatin1String("0"))) {
+            // update property on account
+            d->m_account = file->account(d->m_account.id());
+            d->m_account.setValue(QLatin1String("lastNumberUsed"), highestCheckNumberUsed);
+            file->modifyAccount(d->m_account);
         }
         ft.commit();
 
@@ -1732,6 +1752,21 @@ bool NewTransactionEditor::eventFilter(QObject* o, QEvent* e)
                 // the completion box. We need to do that because the CaseSensitive
                 // mode is set when the focus leaves the widget (see above).
                 d->ui->payeeEdit->completer()->setCaseSensitivity(Qt::CaseInsensitive);
+            }
+        }
+    }
+    if (o == d->ui->payeeEdit->completer()->popup()) {
+        if (e->type() == QEvent::KeyPress) {
+            auto kev = static_cast<QKeyEvent*>(e);
+            if (kev->key() == Qt::Key_Enter || kev->key() == Qt::Key_Return) {
+                const auto view = d->ui->payeeEdit->completer()->popup();
+                // get the current index and toggle it once to
+                // an invalid one so that the signal is
+                // emitted to fill the full name into
+                // the payee edit widget
+                const auto idx = view->currentIndex();
+                view->setCurrentIndex(QModelIndex());
+                view->setCurrentIndex(idx);
             }
         }
     }

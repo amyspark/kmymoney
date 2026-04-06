@@ -118,14 +118,21 @@ public:
 
             if (!isInit) {
                 q->connect(headerView, &QWidget::customContextMenuRequested, q, &ColumnSelector::slotColumnsMenu);
-                q->connect(headerView, &QHeaderView::sectionResized, q, &ColumnSelector::slotUpdateHeaderState);
-                q->connect(headerView, &QHeaderView::sectionMoved, q, &ColumnSelector::slotUpdateHeaderState);
                 headerView->installEventFilter(q);
                 isInit = true;
             }
 
         } else if (!(treeView || tableView)) {
             qDebug() << "WARNING: You must not create a ColumnSelector without a view";
+        }
+    }
+
+    void updateHeaderState()
+    {
+        if (headerView && !configGroupName.isEmpty()) {
+            auto grp = KSharedConfig::openConfig()->group(configGroupName);
+            grp.writeEntry("HeaderState", headerView->saveState());
+            grp.sync();
         }
     }
 
@@ -147,9 +154,9 @@ public:
     bool columnSelectionEnabled;
 };
 
-
 ColumnSelector::ColumnSelector(QTableView* view, const QString& configGroupName, int offset, const QVector<int>& columns)
-    : d_ptr(new ColumnSelectorPrivate(this))
+    : QObject(view)
+    , d_ptr(new ColumnSelectorPrivate(this))
 {
     Q_D(ColumnSelector);
     d->tableView = view;
@@ -161,7 +168,8 @@ ColumnSelector::ColumnSelector(QTableView* view, const QString& configGroupName,
 }
 
 ColumnSelector::ColumnSelector(QTreeView* view, const QString& configGroupName, int offset, const QVector<int>& columns)
-    : d_ptr(new ColumnSelectorPrivate(this))
+    : QObject(view)
+    , d_ptr(new ColumnSelectorPrivate(this))
 {
     Q_D(ColumnSelector);
     d->treeView = view;
@@ -170,22 +178,21 @@ ColumnSelector::ColumnSelector(QTreeView* view, const QString& configGroupName, 
     d->storageOffset = offset;
     d->applyStorageOffsetColumns = columns;
     d->init(configGroupName);
+
+    // make sure to keep the header state just
+    // before the header view is deleted
+    connect(d->headerView, &QObject::destroyed, this, [&]() {
+        Q_D(ColumnSelector);
+        d->updateHeaderState();
+        d->headerView = nullptr;
+    });
 }
 
 ColumnSelector::~ColumnSelector()
 {
     Q_D(ColumnSelector);
+    d->updateHeaderState();
     delete d;
-}
-
-void ColumnSelector::slotUpdateHeaderState()
-{
-    Q_D(ColumnSelector);
-    if (!d->configGroupName.isEmpty()) {
-        auto grp = KSharedConfig::openConfig()->group(d->configGroupName);
-        grp.writeEntry("HeaderState", d->headerView->saveState());
-        grp.sync();
-    }
 }
 
 void ColumnSelector::slotColumnsMenu(const QPoint)
@@ -252,10 +259,9 @@ void ColumnSelector::slotColumnsMenu(const QPoint)
                     }
                 }
                 grp.writeEntry("ColumnsSelection", visibleColumns);
+                grp.sync();
             }
 
-            // do this as last statement as it contains the sync of the grp
-            slotUpdateHeaderState();
             Q_EMIT columnsChanged();
         }
     }
@@ -339,7 +345,8 @@ bool ColumnSelector::eventFilter(QObject* o, QEvent* e)
         // in the view. Calling the hide/showSection again when the header view is
         // about to be displayed solves the issue and removes them completely.
         // Turns out that on Qt6 one needs to call showColumn before the hideColumn
-        // call has an effect.
+        // call has an effect. While we're doing that, we make sure that we don't
+        // save the configuration on the fly
         const auto maxColumn = d->model->columnCount();
         for (int col = 0; col < maxColumn; ++col) {
             const auto hidden = d->isColumnHidden(col);

@@ -692,6 +692,9 @@ enum Roles {
     ReconciliationAmountRole, // the reconciliation balance as MyMoneyMoney object
     ReconciliationBalanceRole, // the reconciliation balance as formatted string
     ReconciliationFilterHintRole, // filtering hint for the entry
+    ReconciliationCurrentRole, // set for current reconciliation entry
+    LastReconciliationRole, // set for the last reconciliation of an account
+    ReconciliationBackgroundRole, // the background color for the current reconciliation entry
 
     // General state
     ClosedRole,

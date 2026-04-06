@@ -82,6 +82,11 @@ public:
      */
     void setFilterBalanceMode(FilterBalanceMode mode);
 
+    /**
+     * Turn on special reconcilation filtering and sorting.
+     */
+    void setReconciliationFilter(bool reconciliationFilter);
+
 public Q_SLOTS:
     void forceReload();
 
@@ -95,6 +100,9 @@ protected:
      * Reimplemented to propagate setting to sourceModel
      */
     void doSortOnIdle() override;
+
+Q_SIGNALS:
+    void sortFinished();
 
 private:
     // make sure that only LedgerSortProxyModel models can be used as sources

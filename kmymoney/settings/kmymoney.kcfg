@@ -272,6 +272,10 @@
    <label>Show a grid in the register</label>
    <default>true</default>
   </entry>
+  <entry name="ShowLedgerFilter" type="Bool">
+   <label>Show the filter widget when an account is opened</label>
+   <default>true</default>
+  </entry>
   <entry name="ShowFancyMarker" type="Bool">
    <label>Show fancy group markers</label>
    <default>true</default>
@@ -299,7 +303,7 @@
    <label>Starting day of the fiscal year</label>
    <default>1</default>
    <min>1</min>
-   <max>28</max>
+   <max>31</max>
   </entry>
   <entry name="StartDate" type="DateTime">
    <label>Start date</label>
@@ -333,8 +337,8 @@
    <default>1,-9,-4</default>
   </entry>
   <entry name="sortReconcileView" type="String">
-   <label>Sort order of register in normal view</label>
-   <default>1,-4</default>
+   <label>Sort order of register in reconcile view</label>
+   <default>11,1,-4</default>
   </entry>
   <entry name="sortSearchView" type="String">
    <label>Sort order of register in search dialog</label>
@@ -374,27 +378,27 @@
  <group name="QIF Options">
   <entry name="qifCash" type="String">
    <label>additional names for cash account</label>
-   <default>Bar</default>
+   <!-- <default>Bar</default> -->
   </entry>
   <entry name="qifBank" type="String">
    <label>additional names for checking account</label>
-   <default>Banca,Banque</default>
+   <!-- <default>Banca,Banque</default> -->
   </entry>
   <entry name="qifCreditCard" type="String">
    <label>additional names for credit card account</label>
-   <default>Kreditkarte</default>
+   <!-- <default>Kreditkarte</default> -->
   </entry>
   <entry name="qifAsset" type="String">
    <label>additional names for asset account</label>
-   <default>And. Kto.</default>
+   <!-- <default>And. Kto.</default> -->
   </entry>
   <entry name="qifOpeningBalance" type="String">
    <label>additional names for opening balance payee</label>
-   <default>Eröffnungssaldo</default>
+   <!-- <default>Eröffnungssaldo</default> -->
   </entry>
   <entry name="qifInvoice" type="String">
    <label>additional names for invoice accounts</label>
-   <default>Rechnung</default>
+   <!-- <default>Rechnung</default> -->
   </entry>
  </group>
  <group name="Account View Settings">
